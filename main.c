@@ -33,88 +33,47 @@
 #include <sys/xattr.h>
 #endif
 
-static int xmp_getattr(const char *path, struct stat *stbuf)
+// static const char *hello_path = "/hello";
+static const char *filepath = "/file";
+static const char *filename = "file";
+static const char *filecontent = "I'm the content of the only file available there\n";
+
+
+static int vfs_getattr(const char *path, struct stat *stbuf)
 {
-	int res;
+  memset(stbuf, 0, sizeof(struct stat));
 
-	res = lstat(path, stbuf);
-	if (res == -1)
-		return -errno;
+  if (strcmp(path, "/") == 0) {
+    stbuf->st_mode = S_IFDIR | 0755;
+    stbuf->st_nlink = 2;
+    return 0;
+  }
 
-	return 0;
+  if (strcmp(path, filepath) == 0) {
+    stbuf->st_mode = S_IFREG | 0777;
+    stbuf->st_nlink = 1;
+    stbuf->st_size = strlen(filecontent);
+    return 0;
+  }
+
+  return -ENOENT;
 }
 
-static int xmp_access(const char *path, int mask)
-{
-	int res;
-
-	res = access(path, mask);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_readlink(const char *path, char *buf, size_t size)
-{
-	int res;
-
-	res = readlink(path, buf, size - 1);
-	if (res == -1)
-		return -errno;
-
-	buf[res] = '\0';
-	return 0;
-}
-
-
-static int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+static int vfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		       off_t offset, struct fuse_file_info *fi)
 {
-	DIR *dp;
-	struct dirent *de;
 
-	(void) offset;
-	(void) fi;
+  (void) offset;
+  (void) fi;
 
-	dp = opendir(path);
-	if (dp == NULL)
-		return -errno;
-
-	while ((de = readdir(dp)) != NULL) {
-		struct stat st;
-		memset(&st, 0, sizeof(st));
-		st.st_ino = de->d_ino;
-		st.st_mode = de->d_type << 12;
-		if (filler(buf, de->d_name, &st, 0))
-			break;
-	}
-
-	closedir(dp);
-	return 0;
+  filler(buf, ".", NULL, 0);
+  filler(buf, "..", NULL, 0);
+  filler(buf, filename, NULL, 0);
+  return 0;
 }
 
-static int xmp_mknod(const char *path, mode_t mode, dev_t rdev)
-{
-	int res;
 
-	/* On Linux this could just be 'mknod(path, mode, rdev)' but this
-	   is more portable */
-	if (S_ISREG(mode)) {
-		res = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
-		if (res >= 0)
-			res = close(res);
-	} else if (S_ISFIFO(mode))
-		res = mkfifo(path, mode);
-	else
-		res = mknod(path, mode, rdev);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_mkdir(const char *path, mode_t mode)
+static int vfs_mkdir(const char *path, mode_t mode)
 {
 	int res;
 
@@ -125,18 +84,7 @@ static int xmp_mkdir(const char *path, mode_t mode)
 	return 0;
 }
 
-static int xmp_unlink(const char *path)
-{
-	int res;
-
-	res = unlink(path);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_rmdir(const char *path)
+static int vfs_rmdir(const char *path)
 {
 	int res;
 
@@ -147,90 +95,8 @@ static int xmp_rmdir(const char *path)
 	return 0;
 }
 
-static int xmp_symlink(const char *to, const char *from)
-{
-	int res;
 
-	res = symlink(to, from);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_rename(const char *from, const char *to)
-{
-	int res;
-
-	res = rename(from, to);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_link(const char *from, const char *to)
-{
-	int res;
-
-	res = link(from, to);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_chmod(const char *path, mode_t mode)
-{
-	int res;
-
-	res = chmod(path, mode);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_chown(const char *path, uid_t uid, gid_t gid)
-{
-	int res;
-
-	res = lchown(path, uid, gid);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_truncate(const char *path, off_t size)
-{
-	int res;
-
-	res = truncate(path, size);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_utimens(const char *path, const struct timespec ts[2])
-{
-	int res;
-	struct timeval tv[2];
-
-	tv[0].tv_sec = ts[0].tv_sec;
-	tv[0].tv_usec = ts[0].tv_nsec / 1000;
-	tv[1].tv_sec = ts[1].tv_sec;
-	tv[1].tv_usec = ts[1].tv_nsec / 1000;
-
-	res = utimes(path, tv);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_open(const char *path, struct fuse_file_info *fi)
+static int vfs_open(const char *path, struct fuse_file_info *fi)
 {
 	int res;
 
@@ -242,141 +108,39 @@ static int xmp_open(const char *path, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int xmp_read(const char *path, char *buf, size_t size, off_t offset,
+static int vfs_read(const char *path, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {
-	int fd;
-	int res;
+	if (strcmp(path, filepath) == 0) {
+    size_t len = strlen(filecontent);
+    if (offset >= len) {
+      return 0;
+    }
 
-	(void) fi;
-	fd = open(path, O_RDONLY);
-	if (fd == -1)
-		return -errno;
+    if (offset + size > len) {
+      memcpy(buf, filecontent + offset, len - offset);
+      return len - offset;
+    }
 
-	res = pread(fd, buf, size, offset);
-	if (res == -1)
-		res = -errno;
+    memcpy(buf, filecontent + offset, size);
+    return size;
+  }
 
-	close(fd);
-	return res;
+  return -ENOENT;
+
 }
 
-static int xmp_write(const char *path, const char *buf, size_t size,
-		     off_t offset, struct fuse_file_info *fi)
-{
-	int fd;
-	int res;
 
-	(void) fi;
-	fd = open(path, O_WRONLY);
-	if (fd == -1)
-		return -errno;
-
-	res = pwrite(fd, buf, size, offset);
-	if (res == -1)
-		res = -errno;
-
-	close(fd);
-	return res;
-}
-
-static int xmp_statfs(const char *path, struct statvfs *stbuf)
-{
-	int res;
-
-	res = statvfs(path, stbuf);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_release(const char *path, struct fuse_file_info *fi)
-{
-	/* Just a stub.	 This method is optional and can safely be left
-	   unimplemented */
-
-	(void) path;
-	(void) fi;
-	return 0;
-}
-
-static int xmp_fsync(const char *path, int isdatasync,
-		     struct fuse_file_info *fi)
-{
-	/* Just a stub.	 This method is optional and can safely be left
-	   unimplemented */
-
-	(void) path;
-	(void) isdatasync;
-	(void) fi;
-	return 0;
-}
-
-#ifdef HAVE_SETXATTR
-/* xattr operations are optional and can safely be left unimplemented */
-static int xmp_setxattr(const char *path, const char *name, const char *value,
-			size_t size, int flags)
-{
-	int res = lsetxattr(path, name, value, size, flags);
-	if (res == -1)
-		return -errno;
-	return 0;
-}
-
-static int xmp_getxattr(const char *path, const char *name, char *value,
-			size_t size)
-{
-	int res = lgetxattr(path, name, value, size);
-	if (res == -1)
-		return -errno;
-	return res;
-}
-
-static int xmp_listxattr(const char *path, char *list, size_t size)
-{
-	int res = llistxattr(path, list, size);
-	if (res == -1)
-		return -errno;
-	return res;
-}
-
-static int xmp_removexattr(const char *path, const char *name)
-{
-	int res = lremovexattr(path, name);
-	if (res == -1)
-		return -errno;
-	return 0;
-}
-#endif /* HAVE_SETXATTR */
 
 static struct fuse_operations xmp_oper = {
-	.getattr	= xmp_getattr,
-	.access		= xmp_access,
-	.readlink	= xmp_readlink,
-	.readdir	= xmp_readdir,
-	.mknod		= xmp_mknod,
-	.mkdir		= xmp_mkdir,
-	.symlink	= xmp_symlink,
-	.unlink		= xmp_unlink,
-	.rmdir		= xmp_rmdir,
-	.rename		= xmp_rename,
-	.link		= xmp_link,
-	.chmod		= xmp_chmod,
-	.chown		= xmp_chown,
-	.truncate	= xmp_truncate,
-	.utimens	= xmp_utimens,
-	.open		= xmp_open,
-	.read		= xmp_read,
-	.write		= xmp_write,
-	.statfs		= xmp_statfs,
-	.release	= xmp_release,
-	.fsync		= xmp_fsync,
+	.getattr	= vfs_getattr,
+	.readdir	= vfs_readdir,
+	.mkdir		= vfs_mkdir,
+	.rmdir		= vfs_rmdir,
+	.open		= vfs_open,
+	.read		= vfs_read,
 #ifdef HAVE_SETXATTR
-	.setxattr	= xmp_setxattr,
-	.getxattr	= xmp_getxattr,
-	.listxattr	= xmp_listxattr,
-	.removexattr	= xmp_removexattr,
+	
 #endif
 };
 
