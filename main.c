@@ -65,7 +65,6 @@ static int vfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
   (void) offset;
   (void) fi;
-
   filler(buf, ".", NULL, 0);
   filler(buf, "..", NULL, 0);
   filler(buf, filename, NULL, 0);
@@ -97,15 +96,14 @@ static int vfs_rmdir(const char *path)
 
 
 static int vfs_open(const char *path, struct fuse_file_info *fi)
-{
-	int res;
+{ 
+	if(strcmp(path, filepath) != 0)
+        return -ENOENT;
 
-	res = open(path, fi->flags);
-	if (res == -1)
-		return -errno;
+    if((fi->flags & 3) != O_RDONLY)
+        return -EACCES;
 
-	close(res);
-	return 0;
+    return 0;
 }
 
 static int vfs_read(const char *path, char *buf, size_t size, off_t offset,
@@ -132,7 +130,7 @@ static int vfs_read(const char *path, char *buf, size_t size, off_t offset,
 
 
 
-static struct fuse_operations xmp_oper = {
+static struct fuse_operations vfs_oper = {
 	.getattr	= vfs_getattr,
 	.readdir	= vfs_readdir,
 	.mkdir		= vfs_mkdir,
@@ -151,5 +149,5 @@ int main(int argc, char *argv[])
     d_bmap * dmap;
     initialize_fs(sblock, imap, dmap);
 	umask(0);
-	return fuse_main(argc, argv, &xmp_oper, NULL);
+	return fuse_main(argc, argv, &vfs_oper, NULL);
 }
